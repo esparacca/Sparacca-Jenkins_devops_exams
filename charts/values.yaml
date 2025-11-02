@@ -36,7 +36,6 @@ securityContext: {}
   # readOnlyRootFilesystem: true
   # runAsNonRoot: true
   # runAsUser: 1000
-
 service:
   type: NodePort
   port: 80
@@ -71,6 +70,12 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
+  # Ajoute Probes configurables (défaut = chemin historique du chart)
+probes:
+  livenessPath: "/api/v1/checkapi"
+  readinessPath: "/api/v1/checkapi"
+
+  # autoscaling
 autoscaling:
   enabled: false
   minReplicas: 1
