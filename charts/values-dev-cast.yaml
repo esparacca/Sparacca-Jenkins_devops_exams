@@ -1,0 +1,19 @@
+# Environnement DEV — service cast
+replicaCount: 1
+
+image:
+  repository: docker.io/sparaccae/cast-service
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Probes alignées sur les routes réelles du service cast
+probes:
+  livenessPath: "/api/v1/casts"
+  readinessPath: "/api/v1/casts"

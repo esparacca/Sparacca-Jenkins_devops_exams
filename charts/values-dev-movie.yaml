@@ -1,0 +1,22 @@
+# Environnement DEV — service movie
+# Image publique sur Docker Hub, 1 réplique, pas de NodePort (ClusterIP).
+replicaCount: 1
+
+image:
+  repository: docker.io/sparaccae/movie-service
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+# Images publiques → aucun secret requis
+imagePullSecrets: []
+
+# Évite les conflits réseau avec le projet du cours
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Probes alignées sur les routes réelles du service movie
+probes:
+  livenessPath: "/api/v1/movies"
+  readinessPath: "/api/v1/movies"

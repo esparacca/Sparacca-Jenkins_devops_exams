@@ -1,0 +1,18 @@
+# Environnement PROD — service movie
+replicaCount: 3
+
+image:
+  repository: docker.io/sparaccae/movie-service
+  tag: "prod"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+probes:
+  livenessPath: "/api/v1/movies"
+  readinessPath: "/api/v1/movies"
