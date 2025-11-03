@@ -1,5 +1,5 @@
 # Image Python légère et stable
-FROM python:3.9-slim
+FROM python:3.8-slim
 
 # Éviter les .pyc et forcer le flush des logs
 ENV PYTHONDONTWRITEBYTECODE=1 \
