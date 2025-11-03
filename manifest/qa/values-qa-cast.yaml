@@ -1,0 +1,24 @@
+# Environnement: QA — Service: cast
+# Rôle: définit l’image, les probes et les variables d’environnement pour le déploiement Helm.
+
+replicaCount: 1
+
+image:
+  repository: sparaccae/cast-service   # image sur Docker Hub (tag alias d’environnement)
+  tag: "qa"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Probes adaptées au service cast (endpoints réels FastAPI)
+probes:
+  livenessPath: "/api/v1/casts"
+  readinessPath: "/api/v1/casts"
+
+# Variables d’environnement nécessaires à l’app
+env:
+  # Connexion à PostgreSQL (Service k8s "cast-db" dans le namespace dev)
+  DATABASE_URI: "postgresql://cast_db_username:cast_db_password@cast-db/cast_db_qa"

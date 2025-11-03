@@ -1,0 +1,26 @@
+# Environnement: DEV — Service: movie
+# Rôle: paramètres d’image, probes et variables d’environnement pour Helm.
+
+replicaCount: 1
+
+image:
+  repository: sparaccae/movie-service
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+# Probes adaptées au service movie (endpoints réels FastAPI)
+probes:
+  livenessPath: "/api/v1/movies"
+  readinessPath: "/api/v1/movies"
+
+# Variables d’environnement
+env:
+  # DB locale au namespace dev (Service: movie-db)
+  DATABASE_URI: "postgresql://movie_db_username:movie_db_password@movie-db/movie_db_dev"
+  # URL interne vers l’API cast (nom de release Helm = "exam-cast" → Service exposé sur port 80)
+  CAST_SERVICE_HOST_URL: "http://exam-cast/api/v1/casts/"

@@ -47,6 +47,14 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- /* Variables d’environnement optionnelles passées via values */ -}}
+          {{- if .Values.env }}
+          env:
+          {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}               # Nom de la variable d’environnement
+              value: {{ $v | quote }}      # Valeur fournie dans values-*.yaml
+          {{- end }}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

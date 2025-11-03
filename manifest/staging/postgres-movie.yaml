@@ -1,0 +1,62 @@
+# PostgreSQL (movie) — ENV: staging — stockage persistant via PVC
+# K3s: storageClassName = "local-path" (par défaut)
+# Données conservées entre redémarrages du Pod
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: movie-db-pvc
+  namespace: staging
+spec:
+  accessModes:
+    - ReadWriteOnce            # Un seul nœud écrit à la fois (OK pour Postgres)
+  storageClassName: local-path # Classe de stockage par défaut K3s
+  resources:
+    requests:
+      storage: 1Gi             # Taille minimale pour l’exercice
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: movie-db
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: movie-db }
+  template:
+    metadata:
+      labels: { app: movie-db }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:12.1-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "movie_db_username"
+            - name: POSTGRES_PASSWORD
+              value: "movie_db_password"
+            - name: POSTGRES_DB
+              value: "movie_db_dev"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data   # Répertoire de données PG
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: movie-db-pvc                 # Monte le PVC
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: movie-db
+  namespace: staging
+spec:
+  selector: { app: movie-db }
+  ports:
+    - port: 5432
+      targetPort: 5432
