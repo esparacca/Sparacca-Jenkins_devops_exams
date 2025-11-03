@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.8-slim
 
 # Pas de .pyc et logs non-bufferisés
 ENV PYTHONDONTWRITEBYTECODE=1 \
