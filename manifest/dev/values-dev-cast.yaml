@@ -6,7 +6,7 @@ replicaCount: 1
 image:
   repository: sparaccae/cast-service   # image sur Docker Hub (tag alias d’environnement)
   tag: "dev"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 service:
   type: ClusterIP
@@ -15,8 +15,8 @@ service:
 
 # Probes adaptées au service cast (endpoints réels FastAPI)
 probes:
-  livenessPath: "/api/v1/casts"
-  readinessPath: "/api/v1/casts"
+  livenessPath: "/api/v1/casts/docs"
+  readinessPath: "/api/v1/casts/openapi.json"
 
 # Variables d’environnement nécessaires à l’app
 env:
