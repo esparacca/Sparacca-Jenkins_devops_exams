@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // Pipeline Jenkins pour "Sparacca-Jenkins_devops_exams"
-// Objectif pédagogique :
+// Objectif :
 // - Construire et publier 2 images Docker (movie-service, cast-service) sur Docker Hub (public)
 // - Déployer via Helm le même chart mono-image, 2 fois (une release par service)
 // - 4 environnements (dev, qa, staging, prod) basés sur des Namespaces k8s
@@ -37,20 +37,30 @@ pipeline {
     }
 
     stage('Build & Push: images (tag de build)') {
-      // Pédagogie :
+      // Processus :
       // 1) On construit d’abord un tag de build immuable (BUILD_TAG) pour garantir la traçabilité.
-      // 2) On pousse ce tag. Les tags d’environnement (dev/qa/staging/prod) seront des alias créés ensuite.
+      // 2) Petit smoke test local (run + curl) sur movie pour valider l’image.
+      // 3) On pousse ce tag. Les tags d’environnement (dev/qa/staging/prod) seront des alias créés ensuite.
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin
 
           # movie-service : build à partir du dossier dédié
-          docker build -t docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} movie-service
-          docker push docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker build -t ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} movie-service
 
           # cast-service : idem
-          docker build -t docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG} cast-service
-          docker push docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker build -t ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG} cast-service
+
+          # Smoke test local (movie) : on vérifie que l’API répond
+          docker rm -f movie-test || true
+          docker run -d -p 8001:8000 --name movie-test ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          sleep 5
+          curl -f http://localhost:8001/api/v1/movies/ || (echo "Smoke test KO"; docker logs --tail=100 movie-test; docker rm -f movie-test || true; exit 1)
+          docker rm -f movie-test || true
+
+          # Push des deux images (tag de build immuable)
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
 
           docker logout || true
         '''
@@ -68,13 +78,13 @@ pipeline {
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
           # Alias :dev pour movie et cast
-          docker pull docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:dev
-          docker push docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:dev
+          docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:dev
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:dev
 
-          docker pull docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  docker.io/${DOCKER_ID}/${CAST_IMAGE}:dev
-          docker push docker.io/${DOCKER_ID}/${CAST_IMAGE}:dev
+          docker pull ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  ${DOCKER_ID}/${CAST_IMAGE}:dev
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:dev
 
           docker logout || true
 
@@ -96,13 +106,13 @@ pipeline {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          docker pull docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:qa
-          docker push docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:qa
+          docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:qa
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:qa
 
-          docker pull docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  docker.io/${DOCKER_ID}/${CAST_IMAGE}:qa
-          docker push docker.io/${DOCKER_ID}/${CAST_IMAGE}:qa
+          docker pull ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  ${DOCKER_ID}/${CAST_IMAGE}:qa
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:qa
 
           docker logout || true
 
@@ -123,13 +133,13 @@ pipeline {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          docker pull docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:staging
-          docker push docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:staging
+          docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:staging
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:staging
 
-          docker pull docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  docker.io/${DOCKER_ID}/${CAST_IMAGE}:staging
-          docker push docker.io/${DOCKER_ID}/${CAST_IMAGE}:staging
+          docker pull ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  ${DOCKER_ID}/${CAST_IMAGE}:staging
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:staging
 
           docker logout || true
 
@@ -158,13 +168,13 @@ pipeline {
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
           # Alias ":prod" (images stables correspondant au déploiement prod)
-          docker pull docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:prod
-          docker push docker.io/${DOCKER_ID}/${MOVIE_IMAGE}:prod
+          docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:prod
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:prod
 
-          docker pull docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
-          docker tag  docker.io/${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  docker.io/${DOCKER_ID}/${CAST_IMAGE}:prod
-          docker push docker.io/${DOCKER_ID}/${CAST_IMAGE}:prod
+          docker pull ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker tag  ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}  ${DOCKER_ID}/${CAST_IMAGE}:prod
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:prod
 
           docker logout || true
 
