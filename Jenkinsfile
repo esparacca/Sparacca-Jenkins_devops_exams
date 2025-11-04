@@ -1,15 +1,9 @@
-// -----------------------------------------------------------------------------
-// Pipeline Jenkins pour "Sparacca-Jenkins_devops_exams"
-// Objectif :
-// - Construire et publier 2 images Docker (movie-service, cast-service) sur Docker Hub (public)
-// - Déployer via Helm un chart commun, 2 releases (movie/cast) par environnement
-// - Environnements : dev (toujours), qa & staging (uniquement sur master), prod (uniquement sur master + validation manuelle)
-// - Tags : on construit un tag de build immuable (BUILD_TAG), puis on crée des alias dev/qa/staging/prod
-// -----------------------------------------------------------------------------
+// Pipeline lineare con gate manuali per QA, STAGING e PROD.
+// DEV sempre automatico; PROD consentita solo da la branche master.
 
 pipeline {
   agent any
-  options { timestamps() }  // ansiColor retiré (plugin non garanti)
+  options { timestamps() }
 
   environment {
     DOCKER_ID   = "sparaccae"
@@ -17,7 +11,9 @@ pipeline {
     CAST_IMAGE  = "cast-service"
     BUILD_TAG   = "v.${BUILD_ID}.0"
 
-    // Secret text Jenkins: DOCKER_HUB_PASS
+    // Jenkins credentials:
+    // - DOCKER_HUB_PASS = Secret Text (Docker Hub token)
+    // - config = Secret file (kubeconfig)
     DOCKER_PASS = credentials('DOCKER_HUB_PASS')
   }
 
@@ -27,16 +23,16 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build & Push: images (tag de build)') {
+    stage('Build & Push: tag de build') {
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin
 
-          # movie-service
+          # movie-service (tag immuable)
           docker build -t ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} movie-service
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
 
-          # cast-service
+          # cast-service (tag immuable)
           docker build -t ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG} cast-service
           docker push ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
 
@@ -45,13 +41,13 @@ pipeline {
       }
     }
 
-    stage('DEV: alias des tags & déploiement (toujours)') {
-      environment { KUBECONFIG = credentials('config') } // kubeconfig (Secret file)
+    stage('DEV: alias & déploiement') {
+      environment { KUBECONFIG = credentials('config') }
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          # Alias :dev (movie + cast)
+          # alias :dev
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:dev
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:dev
@@ -62,20 +58,30 @@ pipeline {
 
           docker logout || true
 
-          # Déploiements Helm (namespace dev)
+          # déploiements Helm (namespace dev)
           helm upgrade --install exam-movie ./charts -n dev -f manifest/dev/values-dev-movie.yaml
           helm upgrade --install exam-cast  ./charts -n dev -f manifest/dev/values-dev-cast.yaml
         '''
       }
     }
 
-    stage('QA: alias & déploiement (master uniquement)') {
-      when { branch 'master' }
+    stage('Gate QA') {
+      steps {
+        script {
+          timeout(time: 30, unit: 'MINUTES') {
+            input message: 'Déployer en QA ?'
+          }
+        }
+      }
+    }
+
+    stage('QA: alias & déploiement') {
       environment { KUBECONFIG = credentials('config') }
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
+          # alias :qa
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:qa
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:qa
@@ -86,19 +92,30 @@ pipeline {
 
           docker logout || true
 
+          # déploiements Helm (namespace qa)
           helm upgrade --install exam-movie ./charts -n qa -f manifest/qa/values-qa-movie.yaml
           helm upgrade --install exam-cast  ./charts -n qa -f manifest/qa/values-qa-cast.yaml
         '''
       }
     }
 
-    stage('STAGING: alias & déploiement (master uniquement)') {
-      when { branch 'master' }
+    stage('Gate STAGING') {
+      steps {
+        script {
+          timeout(time: 30, unit: 'MINUTES') {
+            input message: 'Déployer en STAGING ?'
+          }
+        }
+      }
+    }
+
+    stage('STAGING: alias & déploiement') {
       environment { KUBECONFIG = credentials('config') }
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
+          # alias :staging
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:staging
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:staging
@@ -109,26 +126,35 @@ pipeline {
 
           docker logout || true
 
+          # déploiements Helm (namespace staging)
           helm upgrade --install exam-movie ./charts -n staging -f manifest/staging/values-staging-movie.yaml
           helm upgrade --install exam-cast  ./charts -n staging -f manifest/staging/values-staging-cast.yaml
         '''
       }
     }
 
-    stage('PROD: validation manuelle + déploiement (master uniquement)') {
-      when { branch 'master' }     // barrière 1 : jamais hors de master
-      environment { KUBECONFIG = credentials('config') }
+    stage('Gate PROD') {
       steps {
         script {
-          // barrière 2 : validation explicite
-          timeout(time: 20, unit: 'MINUTES') {
-            input message: 'Déployer en production ?', ok: 'Oui'
+          // sécurité: PROD uniquement depuis master
+          def branchName = env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+          if (!branchName.toLowerCase().contains('master')) {
+            error "Déploiement PROD bloqué : branche courante = '${branchName}'. Seule la branche 'master' est autorisée."
+          }
+          timeout(time: 30, unit: 'MINUTES') {
+            input message: 'Déployer en PRODUCTION ?'
           }
         }
+      }
+    }
+
+    stage('PROD: alias & déploiement') {
+      environment { KUBECONFIG = credentials('config') }
+      steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          # Aliases prod
+          # alias :prod
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:prod
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:prod
@@ -139,7 +165,7 @@ pipeline {
 
           docker logout || true
 
-          # Déploiements Helm (namespace prod)
+          # déploiements Helm (namespace prod)
           helm upgrade --install exam-movie ./charts -n prod -f manifest/prod/values-prod-movie.yaml
           helm upgrade --install exam-cast  ./charts -n prod -f manifest/prod/values-prod-cast.yaml
         '''
@@ -149,7 +175,6 @@ pipeline {
 
   post {
     always {
-      // Hygiène côté agent : libérer l’espace disque
       sh 'docker system prune -f || true'
     }
   }
