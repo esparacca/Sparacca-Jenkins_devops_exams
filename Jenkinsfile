@@ -2,51 +2,43 @@
 // Pipeline Jenkins pour "Sparacca-Jenkins_devops_exams"
 // Objectif :
 // - Construire et publier 2 images Docker (movie-service, cast-service) sur Docker Hub (public)
-// - Déployer via Helm le chart mono-image 2 fois (une release par service)
-// - 4 environnements (dev, qa, staging, prod) par Namespaces k8s
-// - Prod déclenchée manuellement depuis la branche master
+// - Déployer via Helm un chart commun, 2 releases (movie/cast) par environnement
+// - Environnements : dev (toujours), qa & staging (uniquement sur master), prod (uniquement sur master + validation manuelle)
+// - Tags : on construit un tag de build immuable (BUILD_TAG), puis on crée des alias dev/qa/staging/prod
 // -----------------------------------------------------------------------------
 
 pipeline {
   agent any
-  options { timestamps() }   // Journal horodaté ; couleur supprimée (plugin manquant)
+  options { timestamps() }  // ansiColor retiré (plugin non garanti)
 
   environment {
-    // Identité Docker Hub (images publiques)
-    DOCKER_ID    = "sparaccae"
+    DOCKER_ID   = "sparaccae"
+    MOVIE_IMAGE = "movie-service"
+    CAST_IMAGE  = "cast-service"
+    BUILD_TAG   = "v.${BUILD_ID}.0"
 
-    // Deux dépôts d’images — un par microservice
-    MOVIE_IMAGE  = "movie-service"
-    CAST_IMAGE   = "cast-service"
-
-    // Tag de build traçable (immuable)
-    BUILD_TAG    = "v.${BUILD_ID}.0"
-
-    // Secret text Jenkins avec le token Docker Hub
-    DOCKER_PASS  = credentials('DOCKER_HUB_PASS')
+    // Secret text Jenkins: DOCKER_HUB_PASS
+    DOCKER_PASS = credentials('DOCKER_HUB_PASS')
   }
 
   stages {
 
     stage('Checkout') {
-      // Récupère le code du dépôt (chart Helm + sources des 2 services)
       steps { checkout scm }
     }
 
     stage('Build & Push: images (tag de build)') {
-      // 1) Build des images avec le tag immuable BUILD_TAG
-      // 2) Push ; les alias d’environnement seront créés dans les stages suivants
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin
 
           # movie-service
           docker build -t ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} movie-service
-          docker push    ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
+          docker push ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
 
           # cast-service
           docker build -t ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG} cast-service
-          docker push    ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
+          docker push ${DOCKER_ID}/${CAST_IMAGE}:${BUILD_TAG}
 
           docker logout || true
         '''
@@ -54,13 +46,12 @@ pipeline {
     }
 
     stage('DEV: alias des tags & déploiement (toujours)') {
-      // DEV réagit à chaque commit (feedback rapide)
       environment { KUBECONFIG = credentials('config') } // kubeconfig (Secret file)
       steps {
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          # Alias :dev
+          # Alias :dev (movie + cast)
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:dev
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:dev
@@ -71,7 +62,7 @@ pipeline {
 
           docker logout || true
 
-          # Déploiements Helm (values DEV spécifiques à chaque service)
+          # Déploiements Helm (namespace dev)
           helm upgrade --install exam-movie ./charts -n dev -f manifest/dev/values-dev-movie.yaml
           helm upgrade --install exam-cast  ./charts -n dev -f manifest/dev/values-dev-cast.yaml
         '''
@@ -79,7 +70,6 @@ pipeline {
     }
 
     stage('QA: alias & déploiement (master uniquement)') {
-      // QA depuis master uniquement (stabilisation)
       when { branch 'master' }
       environment { KUBECONFIG = credentials('config') }
       steps {
@@ -103,7 +93,6 @@ pipeline {
     }
 
     stage('STAGING: alias & déploiement (master uniquement)') {
-      // Pré-production ; même contrôle que QA
       when { branch 'master' }
       environment { KUBECONFIG = credentials('config') }
       steps {
@@ -127,22 +116,19 @@ pipeline {
     }
 
     stage('PROD: validation manuelle + déploiement (master uniquement)') {
-      // Production : déclenchement manuel + restriction master
-      when { branch 'master' }
-
-      // Boîte de validation avant déploiement (avec timeout)
-      options { timeout(time: 20, unit: 'MINUTES') }
-      input {
-        message 'Déployer en production ?'
-        ok 'Oui'
-      }
-
+      when { branch 'master' }     // barrière 1 : jamais hors de master
       environment { KUBECONFIG = credentials('config') }
       steps {
+        script {
+          // barrière 2 : validation explicite
+          timeout(time: 20, unit: 'MINUTES') {
+            input message: 'Déployer en production ?', ok: 'Oui'
+          }
+        }
         sh '''
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_ID" --password-stdin || true
 
-          # Alias :prod (images stables pour prod)
+          # Aliases prod
           docker pull ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG}
           docker tag  ${DOCKER_ID}/${MOVIE_IMAGE}:${BUILD_TAG} ${DOCKER_ID}/${MOVIE_IMAGE}:prod
           docker push ${DOCKER_ID}/${MOVIE_IMAGE}:prod
@@ -153,7 +139,7 @@ pipeline {
 
           docker logout || true
 
-          # Values PROD : réplicaCount=3 (déjà dans manifest/prod/*)
+          # Déploiements Helm (namespace prod)
           helm upgrade --install exam-movie ./charts -n prod -f manifest/prod/values-prod-movie.yaml
           helm upgrade --install exam-cast  ./charts -n prod -f manifest/prod/values-prod-cast.yaml
         '''
@@ -163,7 +149,7 @@ pipeline {
 
   post {
     always {
-      // Hygiène côté agent : libérer l’espace disque Docker
+      // Hygiène côté agent : libérer l’espace disque
       sh 'docker system prune -f || true'
     }
   }
