@@ -23,4 +23,4 @@ env:
   # DB locale au namespace dev (Service: movie-db)
   DATABASE_URI: "postgresql://movie_db_username:movie_db_password@movie-db/movie_db_dev"
   # URL interne vers l’API cast (nom de release Helm = "exam-cast" → Service exposé sur port 80)
-  CAST_SERVICE_HOST_URL: "http://exam-cast/api/v1/casts/"
+  CAST_SERVICE_HOST_URL: "http://exam-cast-fastapiapp/api/v1/casts/"
