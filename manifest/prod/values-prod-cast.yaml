@@ -1,7 +1,7 @@
 # Environnement: Prod — Service: cast
 # Rôle: définit l’image, les probes et les variables d’environnement pour le déploiement Helm.
 
-replicaCount: 1
+replicaCount: 3
 
 image:
   repository: sparaccae/cast-service   # image sur Docker Hub (tag alias d’environnement)
